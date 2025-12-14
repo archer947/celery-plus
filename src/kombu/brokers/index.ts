@@ -12,7 +12,7 @@ export interface CeleryBroker {
     headers: object,
     properties: object
   ) => Promise<any>;
-  subscribe: (queue: string, callback: Function) => Promise<any>;
+  subscribe: (queue: string, callback: (...args: any[]) => any) => Promise<any>;
 }
 
 /**

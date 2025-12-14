@@ -36,7 +36,7 @@ export default class RedisBackend implements CeleryBackend {
       if (this.redis.status === "ready") {
         resolve();
       } else {
-        let handleError; // eslint-disable-line prefer-const
+        let handleError;
         const handleReady = () => {
           this.redis.removeListener("error", handleError);
           resolve();

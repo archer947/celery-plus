@@ -45,7 +45,7 @@ export default class RedisBroker implements CeleryBroker {
       if (this.redis.status === "ready") {
         resolve();
       } else {
-        let handleError; // eslint-disable-line prefer-const
+        let handleError;
         const handleReady = () => {
           this.redis.removeListener("error", handleError);
           resolve();
@@ -111,7 +111,7 @@ export default class RedisBroker implements CeleryBroker {
    * @param {Function} callback
    * @returns {Promise}
    */
-  public subscribe(queue: string, callback: Function): Promise<any[]> {
+  public subscribe(queue: string, callback: (...args: any[]) => any): Promise<any[]> {
     const promiseCount = 1;
 
     return this.isReady().then(() => {
@@ -134,9 +134,9 @@ export default class RedisBroker implements CeleryBroker {
    */
   private receive(
     index: number,
-    resolve: Function,
+    resolve: (...args: any[]) => any,
     queue: string,
-    callback: Function
+    callback: (...args: any[]) => any
   ): void {
     process.nextTick(() =>
       this.recieveOneOnNextTick(index, resolve, queue, callback)
@@ -153,9 +153,9 @@ export default class RedisBroker implements CeleryBroker {
    */
   private recieveOneOnNextTick(
     index: number,
-    resolve: Function,
+    resolve: (...args: any[]) => any,
     queue: string,
-    callback: Function
+    callback: (...args: any[]) => any
   ): Promise<void> {
     if (this.closing) {
       resolve();

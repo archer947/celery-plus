@@ -15,7 +15,7 @@ export default class Worker extends Base {
    * worker.register('tasks.add', (a, b) => a + b);
    * worker.start();
    */
-  public register(name: string, handler: Function): void {
+  public register(name: string, handler: (...args: any[]) => any): void {
     if (!handler) {
       throw new Error("Undefined handler");
     }
@@ -78,13 +78,13 @@ export default class Worker extends Base {
    *
    * @param {String} queue queue name for task route
    */
-  private getConsumer(queue: string): Function {
+  private getConsumer(queue: string): () => Promise<any> {
     const onMessage = this.createTaskHandler();
 
     return (): any => this.broker.subscribe(queue, onMessage);
   }
 
-  public createTaskHandler(): Function {
+  public createTaskHandler(): (message: any) => Promise<any> {
     const onTaskReceived = async (message: Message): Promise<any> => {
       if (!message) {
         return;
@@ -196,7 +196,6 @@ export default class Worker extends Base {
    *
    * @todo implement here
    */
-  // eslint-disable-next-line class-methods-use-this
   public stop(): any {
     throw new Error("not implemented yet");
   }

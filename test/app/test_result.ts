@@ -88,13 +88,12 @@ describe("AsyncResult", () => {
       // Arrange
       const testResult = "100";
       const testStatus = "FAILURE";
-      const result = new AsyncResult(testName, redisBackend);
+      const asyncResult = new AsyncResult(testName, redisBackend);
       redisBackend.storeResult(testName, testResult, testStatus)
         .then(() => {
-
           // Action
-          result.get()
-            .then((result) => {
+          asyncResult.get()
+            .then(() => {
               assert.fail("should not get here");
             })
             .catch(error => {
