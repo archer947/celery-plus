@@ -3,13 +3,26 @@
   "version": "0.1.2",
   "description": "A TypeScript implementation of a Celery client for Node.js",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
   "scripts": {
     "lint": "eslint --ext .js,.ts .",
     "format": "prettier --write \"{,!(node_modules)/**/}*.{js,ts}\"",
     "format-check": "prettier --check \"{,!(node_modules)/**/}*.{js,ts}\"",
-    "dist": "tsc",
+    "dist": "tsup",
     "test": "node --loader ts-node/esm --experimental-specifier-resolution=node ./node_modules/mocha/bin/mocha.js --reporter spec --timeout 10000 \"test/**/test_*.ts\"",
     "test:with-deps": "./scripts/test-with-compose.sh",
     "prepublishOnly": "npm run dist"
@@ -34,36 +47,6 @@
   "bugs": {
     "url": "https://github.com/archer947/celery-plus/issues"
   },
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
-    },
-    "./app/client": {
-      "import": "./dist/app/client.js",
-      "require": "./dist/app/client.js"
-    },
-    "./app/worker": {
-      "import": "./dist/app/worker.js",
-      "require": "./dist/app/worker.js"
-    },
-    "./app/base": {
-      "import": "./dist/app/base.js",
-      "require": "./dist/app/base.js"
-    },
-    "./app/conf": {
-      "import": "./dist/app/conf.js",
-      "require": "./dist/app/conf.js"
-    },
-    "./app/result": {
-      "import": "./dist/app/result.js",
-      "require": "./dist/app/result.js"
-    },
-    "./app/task": {
-      "import": "./dist/app/task.js",
-      "require": "./dist/app/task.js"
-    }
-  },
   "homepage": "https://github.com/archer947/celery-plus#readme",
   "devDependencies": {
     "@types/amqplib": "^0.10.8",
@@ -83,6 +66,7 @@
     "prettier": "^3.7.4",
     "sinon": "^21.0.0",
     "ts-node": "^10.9.2",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   },
   "dependencies": {
