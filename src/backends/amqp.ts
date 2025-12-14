@@ -1,10 +1,13 @@
+
 import * as amqplib from "amqplib";
 import { CeleryBackend } from ".";
 
 export default class AMQPBackend implements CeleryBackend {
-  opts: { [ key:string ]: any };
-  connect: Promise<amqplib.Connection>;
+  private resultExpiresMs: number;
+  connect: Promise<amqplib.ChannelModel>;
   channel: Promise<amqplib.Channel>;
+  _channelInstance?: amqplib.Channel;
+  _connectionInstance?: amqplib.ChannelModel;
 
   /**
    * AMQP backend class
@@ -12,29 +15,51 @@ export default class AMQPBackend implements CeleryBackend {
    * @param {string} url the connection string of amqp
    * @param {object} opts the options object for amqp connect of amqplib
    */
-  constructor(url: string, opts: object) {
-    this.opts = opts;
-    this.connect = amqplib.connect(url, opts);
-    this.channel = this.connect
-      .then(conn => conn.createChannel())
-      .then(ch =>
-        ch
-          .assertExchange("default", "direct", {
-            durable: true,
-            autoDelete: true,
-            internal: false,
-            // nowait: false,
-            arguments: null
-          })
-          .then(() => Promise.resolve(ch))
-      );
+  constructor(url: string, opts: { [key: string]: any } = {}) {
+    this.resultExpiresMs = opts.CELERY_RESULT_EXPIRES || 86400000;
+
+    // Avoid passing celery-plus custom keys to amqplib connect.
+    const connectOpts: { [key: string]: any } = { ...opts };
+    delete connectOpts.CELERY_RESULT_EXPIRES;
+
+    this.connect = (async () => {
+      try {
+        const conn = await amqplib.connect(url, connectOpts as any);
+        this._connectionInstance = conn;
+        (conn as any).on?.("error", (err: unknown) =>
+          console.error("[AMQPBackend] connection error:", err)
+        );
+        (conn as any).on?.("close", () =>
+          console.warn("[AMQPBackend] connection closed")
+        );
+        return conn;
+      } catch (err) {
+        console.error("[AMQPBackend] Connection error:", err);
+        throw err;
+      }
+    })();
+
+    this.channel = (async () => {
+      try {
+        const conn = await this.connect;
+        const ch = await conn.createChannel();
+        this._channelInstance = ch;
+        ch.on("error", err => console.error("[AMQPBackend] channel error:", err));
+        ch.on("close", () => console.warn("[AMQPBackend] channel closed"));
+        return ch;
+      } catch (err) {
+        console.error("[AMQPBackend] Channel error:", err);
+        throw err;
+      }
+    })();
   }
 
   /**
    * @method AMQPBackend#isReady
    * @returns {Promise} promises that continues if amqp connected.
    */
-  public isReady(): Promise<amqplib.Connection> {
+
+  public isReady(): Promise<amqplib.ChannelModel> {
     return this.connect;
   }
 
@@ -42,8 +67,25 @@ export default class AMQPBackend implements CeleryBackend {
    * @method AMQPBackend#disconnect
    * @returns {Promise} promises that continues if amqp disconnected.
    */
-  public disconnect(): Promise<void> {
-    return this.connect.then(conn => conn.close());
+
+  public async disconnect(): Promise<void> {
+    try {
+      try {
+        const ch = await this.channel;
+        await ch.close();
+      } catch {
+        // ignore
+      }
+
+      try {
+        const conn = await this.connect;
+        await conn.close();
+      } catch {
+        // ignore
+      }
+    } catch (err) {
+      console.error("[AMQPBackend] Disconnect error:", err);
+    }
   }
 
   /**
@@ -54,47 +96,45 @@ export default class AMQPBackend implements CeleryBackend {
    * @param {String} state
    * @returns {Promise}
    */
-  public storeResult(
+
+  public async storeResult(
     taskId: string,
     result: any,
     state: string
   ): Promise<boolean> {
     const queue = taskId.replace(/-/g, "");
-    return this.channel
-      .then(ch =>
-        ch
-          .assertQueue(queue, {
-            durable: true,
-            autoDelete: true,
-            exclusive: false,
-            // nowait: false,
-            arguments: {
-              "x-expires": this.opts.CELERY_RESULT_EXPIRES || 86400000
-            }
+    try {
+      const ch = await this.channel;
+      await ch.assertQueue(queue, {
+        durable: true,
+        autoDelete: true,
+        exclusive: false,
+        arguments: {
+          "x-expires": this.resultExpiresMs
+        }
+      });
+      return ch.publish(
+        "",
+        queue,
+        Buffer.from(
+          JSON.stringify({
+            status: state,
+            result: state == "FAILURE" ? null : result,
+            traceback: null,
+            children: [],
+            task_id: taskId,
+            date_done: new Date().toISOString()
           })
-          .then(() => Promise.resolve(ch))
-      )
-      .then(ch =>
-
-        ch.publish(
-          "",
-          queue,
-          Buffer.from(
-              JSON.stringify({
-                status: state,
-                result: state == 'FAILURE' ? null : result,
-                traceback: null,
-                children: [],
-                task_id: taskId,
-                date_done: new Date().toISOString()
-              })
-          ),
-          {
-            contentType: "application/json",
-            contentEncoding: "utf-8"
-          }
-        )
+        ),
+        {
+          contentType: "application/json",
+          contentEncoding: "utf-8"
+        }
       );
+    } catch (err) {
+      console.error("[AMQPBackend] storeResult error:", err);
+      return false;
+    }
   }
 
   /**
@@ -103,46 +143,47 @@ export default class AMQPBackend implements CeleryBackend {
    * @param {String} taskId
    * @returns {Promise}
    */
-  public getTaskMeta(taskId: string): Promise<object> {
-    const queue = taskId.replace(/-/g, "");
-    return this.channel
-      .then(ch =>
-        ch
-          .assertQueue(queue, {
-            durable: true,
-            autoDelete: true,
-            exclusive: false,
-            // nowait: false,
-            arguments: {
-              "x-expires": this.opts.CELERY_RESULT_EXPIRES || 86400000
-            }
-          })
-          .then(() => Promise.resolve(ch))
-      )
-      .then(ch =>
-        ch.get(queue, {
-          noAck: false
-        })
-      )
-      .then(msg => {
-        if (msg === false) {
-          return null;
-        }
 
+  public async getTaskMeta(taskId: string): Promise<object | null> {
+    const queue = taskId.replace(/-/g, "");
+    try {
+      const ch = await this.channel;
+      await ch.assertQueue(queue, {
+        durable: true,
+        autoDelete: true,
+        exclusive: false,
+        arguments: {
+          "x-expires": this.resultExpiresMs
+        }
+      });
+      const msg = await ch.get(queue, { noAck: false });
+      if (msg === false) {
+        return null;
+      }
+
+      // Ensure we don't leak unacked messages (which breaks polling).
+      try {
         if (msg.properties.contentType !== "application/json") {
           throw new Error(
             `unsupported content type ${msg.properties.contentType}`
           );
         }
-
         if (msg.properties.contentEncoding !== "utf-8") {
           throw new Error(
             `unsupported content encoding ${msg.properties.contentEncoding}`
           );
         }
-
         const body = msg.content.toString("utf-8");
-        return JSON.parse(body);
-      });
+        const parsed = JSON.parse(body);
+        ch.ack(msg);
+        return parsed;
+      } catch (err) {
+        ch.ack(msg);
+        throw err;
+      }
+    } catch (err) {
+      console.error("[AMQPBackend] getTaskMeta error:", err);
+      return null;
+    }
   }
 }

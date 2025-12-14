@@ -1,31 +1,40 @@
 import { assert } from "chai";
-import * as Redis from "ioredis";
+import Redis from "ioredis";
 import * as sinon from "sinon";
 import Client from "../../src/app/client";
 import Worker from "../../src/app/worker";
 import { AsyncResult } from "../../src/app/result";
-import { CeleryConf } from "../../src/app/conf";
+import { skipIfRedisUnavailable, TEST_REDIS_URL } from "../helpers/integration";
 
 describe("celery functional tests", () => {
-  const client = new Client(
-    "redis://localhost:6379/0",
-    "redis://localhost:6379/0"
-  );
-  const worker = new Worker(
-    "redis://localhost:6379/0",
-    "redis://localhost:6379/0"
-  );
+  const redisUrl = TEST_REDIS_URL;
+  let redisAvailable = false;
+  let client: Client;
+  let worker: Worker;
 
-  before(() => {
-    worker.register("tasks.add", (a, b) => a + b);
+  before(async function () {
+    redisAvailable = await skipIfRedisUnavailable(this, redisUrl);
+
+    client = new Client(redisUrl, redisUrl);
+    worker = new Worker(redisUrl, redisUrl);
+
+    worker.register("tasks.add", (a: number, b: number) => a + b);
+    worker.register("tasks.add_kwargs", ({ a, b }: { a: number; b: number }) => a + b);
+    worker.register("tasks.fail", () => {
+      throw new Error("boom");
+    });
     worker.register(
       "tasks.delayed",
-      (result, delay) =>
+      (result: unknown, delay: number) =>
         new Promise(resolve => {
           setTimeout(() => resolve(result), delay);
         })
     );
-    worker.start();
+
+    // Start consume loop without awaiting (it runs indefinitely).
+    await worker.isReady();
+    void worker.start();
+    await new Promise((r) => setTimeout(r, 50));
   });
 
   afterEach(() => {
@@ -33,11 +42,16 @@ describe("celery functional tests", () => {
     return worker.whenCurrentJobsFinished();
   });
 
-  after(() => {
-    Promise.all([client.disconnect(), worker.disconnect()]);
+  after(async () => {
+    if (!redisAvailable) return;
 
-    const redis = new Redis();
-    redis.flushdb().then(() => redis.quit());
+    if (client && worker) {
+      await Promise.all([client.disconnect(), worker.disconnect()]);
+    }
+
+    const redis = new Redis(redisUrl);
+    await redis.flushdb();
+    await redis.quit();
   });
 
   describe("initialization", () => {
@@ -93,6 +107,28 @@ describe("celery functional tests", () => {
           .catch(done);
       });
     });
+
+      it("should pass kwargs via applyAsync", done => {
+        const result = client.createTask("tasks.add_kwargs").applyAsync([], { a: 1, b: 2 });
+        result
+          .get()
+          .then((message: unknown) => {
+            assert.equal(message, 3);
+            done();
+          })
+          .catch(done);
+      });
+
+      it("should surface task failure as FAILURE", done => {
+        const result = client.createTask("tasks.fail").applyAsync([]);
+        result
+          .get()
+          .then(() => assert.fail("should not get here"))
+          .catch((error: Error) => {
+            assert.strictEqual(error.message, "FAILURE");
+            done();
+          });
+      });
   });
 
   describe("timeout handing with the redis backend", () => {
@@ -110,6 +146,25 @@ describe("celery functional tests", () => {
           assert.strictEqual(error.message, "TIMEOUT");
           done();
         })
+    });
+
+    it("should allow get() after a TIMEOUT", done => {
+      const result = client
+        .createTask("tasks.delayed")
+        .applyAsync(["bar", 120]);
+
+      result
+        .get(20)
+        .then(() => assert.fail("should not get here"))
+        .catch((error: Error) => {
+          assert.strictEqual(error.message, "TIMEOUT");
+          return result.get(1000);
+        })
+        .then((value: unknown) => {
+          assert.strictEqual(value, "bar");
+          done();
+        })
+        .catch(done);
     });
   });
 });

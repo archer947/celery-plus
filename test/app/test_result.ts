@@ -2,24 +2,36 @@ import { assert } from "chai";
 import { AsyncResult } from "../../src/app/result";
 import RedisBackend from "../../src/backends/redis";
 import * as sinon from "sinon";
-import * as Redis from "ioredis";
+import Redis from "ioredis";
+import { skipIfRedisUnavailable, TEST_REDIS_URL } from "../helpers/integration";
 
 describe("AsyncResult", () => {
-  const redisBackend = new RedisBackend("redis://localhost:6379/0", {});
+  const redisUrl = TEST_REDIS_URL;
+  let redisAvailable = false;
+  let redisBackend: RedisBackend;
 
   let testName: string;
   beforeEach(function () {
-    testName = this.currentTest.title;
+    const base = this.currentTest?.title ?? "unknown-test";
+    testName = `${base}-${Math.random().toString(36).slice(2)}`;
+  });
+
+  before(async function () {
+    redisAvailable = await skipIfRedisUnavailable(this, redisUrl);
+    redisBackend = new RedisBackend(redisUrl, {});
   });
   
   afterEach(() => {
     sinon.restore();
   })
 
-  after(() => {
-    redisBackend.disconnect();
-    const redis = new Redis();
-    redis.flushdb().then(() => redis.quit());
+  after(async () => {
+    if (!redisAvailable) return;
+
+    await redisBackend.disconnect();
+    const redis = new Redis(redisUrl);
+    await redis.flushdb();
+    await redis.quit();
   });
 
   describe("get", () => {

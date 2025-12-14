@@ -39,10 +39,15 @@ export default class Worker extends Base {
    * worker.register('tasks.add', (a, b) => a + b);
    * worker.start();
    */
-  public start(): Promise<any> {
-    console.info("celery.node worker starting...");
-    console.info(`registered task: ${Object.keys(this.handlers)}`);
-    return this.run().catch(err => console.error(err));
+  public async start(): Promise<any> {
+    console.info("celery-plus worker starting...");
+    console.info(`registered tasks: ${Object.keys(this.handlers).join(", ")}`);
+    try {
+      return await this.run();
+    } catch (err) {
+      console.error(err);
+      throw err;
+    }
   }
 
   /**
@@ -51,8 +56,9 @@ export default class Worker extends Base {
    *
    * @returns {Promise}
    */
-  private run(): Promise<any> {
-    return this.isReady().then(() => this.processTasks());
+  private async run(): Promise<any> {
+    await this.isReady();
+    return this.processTasks();
   }
 
   /**
@@ -79,9 +85,9 @@ export default class Worker extends Base {
   }
 
   public createTaskHandler(): Function {
-    const onTaskReceived = (message: Message): any => {
+    const onTaskReceived = async (message: Message): Promise<any> => {
       if (!message) {
-        return Promise.resolve();
+        return;
       }
 
       let payload = null;
@@ -137,29 +143,39 @@ export default class Worker extends Base {
       }
 
       console.info(
-        `celery.node Received task: ${taskName}[${taskId}], args: ${args}, kwargs: ${JSON.stringify(
+        `celery-plus Received task: ${taskName}[${taskId}], args: ${args}, kwargs: ${JSON.stringify(
           kwargs
         )}`
       );
 
       const timeStart = process.hrtime();
-      const taskPromise = handler(...args, kwargs).then(result => {
-        const diff = process.hrtime(timeStart);
-        console.info(
-          `celery.node Task ${taskName}[${taskId}] succeeded in ${diff[0] +
-            diff[1] / 1e9}s: ${result}`
-        );
-        this.backend.storeResult(taskId, result, "SUCCESS");
-        this.activeTasks.delete(taskPromise);
-      }).catch(err => {
-        console.info(`celery.node Task ${taskName}[${taskId}] failed: [${err}]`);
-        this.backend.storeResult(taskId, err, "FAILURE");
-        this.activeTasks.delete(taskPromise);
-      });
 
-      // record the executing task
+      const taskPromise = (async () => {
+        try {
+          const result = await handler(...args, kwargs);
+          const diff = process.hrtime(timeStart);
+          console.info(
+            `celery-plus Task ${taskName}[${taskId}] succeeded in ${diff[0] +
+              diff[1] / 1e9}s: ${result}`
+          );
+          await this.backend.storeResult(taskId, result, "SUCCESS");
+          return result;
+        } catch (err: any) {
+          console.error(
+            `celery-plus Task ${taskName}[${taskId}] failed: ${err?.message || err}`
+          );
+          await this.backend.storeResult(
+            taskId,
+            err?.message || String(err),
+            "FAILURE"
+          );
+          throw err;
+        } finally {
+          this.activeTasks.delete(taskPromise);
+        }
+      })();
+
       this.activeTasks.add(taskPromise);
-
       return taskPromise;
     };
 

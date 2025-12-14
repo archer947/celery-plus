@@ -1,0 +1,21 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4.2-management-alpine
+    ports:
+      - "${RABBITMQ_PORT:-5673}:5672"  # AMQP
+      - "${RABBITMQ_MGMT_PORT:-15673}:15672" # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 2s
+      retries: 40

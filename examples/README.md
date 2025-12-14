@@ -1,12 +1,12 @@
-## Celery.node Examples
+## celery-plus Examples
 - tutorial  
-Use celery.node with amqp
+Use celery-plus with amqp
 
 - tutorial-redis  
-celery.node with redis
+celery-plus with redis
 
 - express  
 Integrate with express
 
 - flask  
-Using python flask api server and celery.node worker
+Using python flask api server and celery-plus worker

@@ -22,22 +22,15 @@ export default class Client extends Base {
     return this.taskProtocols[this.conf.TASK_PROTOCOL];
   }
 
-  public sendTaskMessage(taskName: string, message: TaskMessage): void {
+  public async sendTaskMessage(taskName: string, message: TaskMessage): Promise<void> {
     const { headers, properties, body /*, sentEvent */ } = message;
 
     const exchange = "";
     // exchangeType = 'direct';
     // const serializer = 'json';
 
-    this.isReady().then(() =>
-      this.broker.publish(
-        body,
-        exchange,
-        this.conf.CELERY_QUEUE,
-        headers,
-        properties
-      )
-    );
+    await this.isReady();
+    await this.broker.publish(body, exchange, this.conf.CELERY_QUEUE, headers, properties);
   }
 
   public asTaskV2(

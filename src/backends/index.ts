@@ -1,12 +1,13 @@
 import * as url from "url";
 import RedisBackend from "./redis";
 import AMQPBackend from "./amqp";
+import DisabledBackend from "./disabled";
 
 export interface CeleryBackend {
   isReady: () => Promise<any>;
   disconnect: () => Promise<any>;
   storeResult: (taskId: string, result: any, state: string) => Promise<any>;
-  getTaskMeta: (taskId: string) => Promise<object>;
+  getTaskMeta: (taskId: string) => Promise<object | null>;
 }
 
 /**
@@ -14,7 +15,15 @@ export interface CeleryBackend {
  * @private
  * @constant
  */
-const supportedProtocols = ["redis", "rediss", "amqp", "amqps"];
+const supportedProtocols = [
+  "redis",
+  "rediss",
+  "amqp",
+  "amqps",
+  "rpc",
+  "rpcs",
+  "disabled"
+];
 
 /**
  * takes url string and after parsing scheme of url, returns protocol.
@@ -42,15 +51,22 @@ export function newCeleryBackend(
   CELERY_BACKEND: string,
   CELERY_BACKEND_OPTIONS: object
 ): CeleryBackend {
+  if (!CELERY_BACKEND) {
+    return new DisabledBackend();
+  }
+
   const brokerProtocol = getProtocol(CELERY_BACKEND);
+  if (brokerProtocol === "disabled") {
+    return new DisabledBackend();
+  }
   if (['redis', 'rediss'].indexOf(brokerProtocol) > -1) {
     return new RedisBackend(CELERY_BACKEND, CELERY_BACKEND_OPTIONS);
   }
 
-  if (['amqp', 'amqps'].indexOf(brokerProtocol) > -1) {
+  if (['amqp', 'amqps', 'rpc', 'rpcs'].indexOf(brokerProtocol) > -1) {
     return new AMQPBackend(CELERY_BACKEND, CELERY_BACKEND_OPTIONS);
   }
 
   // do not reach here.
-  throw new Error("unsupprted celery backend");
+  throw new Error("Unsupported celery backend");
 }

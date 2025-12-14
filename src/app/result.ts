@@ -20,7 +20,7 @@ function createError(message: string, data: object): Error {
 export class AsyncResult {
   taskId: string;
   backend: CeleryBackend;
-  private _cache: Promise<any>;
+  private _cache: Promise<any> | null;
 
   /**
    * Asynchronous Result
@@ -38,100 +38,74 @@ export class AsyncResult {
    * @method AsyncResult#get
    * @returns {Promise}
    */
-  public get(timeout?: number, interval = 500): Promise<any> {
-    const waitFor = (resolve: (value?: object) => void) => {
-      let timeoutId: NodeJS.Timeout; // eslint-disable-line prefer-const
-      let intervalId: NodeJS.Timeout; // eslint-disable-line prefer-const
+  public async get(timeout?: number, interval = 500): Promise<any> {
+    const waitFor = (): Promise<any> => {
+      return new Promise((resolve) => {
+        let timeoutId: NodeJS.Timeout | undefined;
+        let intervalId: NodeJS.Timeout;
 
-      if (timeout) {
-        timeoutId = setTimeout(() => {
-          clearInterval(intervalId);
-          resolve({status: "TIMEOUT", result: {}});
-        }, timeout);
-      }
-
-      intervalId = setInterval(() => {
-        this.backend.getTaskMeta(this.taskId).then(meta => {
-          if (meta && isFinalStatus[meta["status"]]) {
-            if (timeout) {
-              clearTimeout(timeoutId);
-            }
+        if (timeout) {
+          timeoutId = setTimeout(() => {
             clearInterval(intervalId);
-            resolve(meta);
-          }
-        });
-      }, interval);
+            resolve({ status: "TIMEOUT", result: {} });
+          }, timeout);
+        }
+
+        intervalId = setInterval(() => {
+          void (async () => {
+            try {
+              const meta = await this.backend.getTaskMeta(this.taskId);
+              if (meta && isFinalStatus[meta["status"]]) {
+                if (timeoutId) clearTimeout(timeoutId);
+                clearInterval(intervalId);
+                resolve(meta);
+              }
+            } catch (err) {
+              console.error(`Error fetching task meta: ${err}`);
+            }
+          })();
+        }, interval);
+      });
     };
 
     if (!this._cache) {
-      this._cache = new Promise<object>((resolve) => {
-        waitFor(resolve);
-      });
+      this._cache = waitFor();
     } else {
-      const p = new Promise<object>((resolve) => {
-        this._cache.then(meta => {
-          if (meta && isFinalStatus[meta["status"]]) {
-            resolve(meta);
-          } else {
-            waitFor(resolve);
-          }
-        });
-      });
-      
-      this._cache = p;
+      const cached = await this._cache;
+      if (!(cached && isFinalStatus[cached["status"]])) {
+        this._cache = waitFor();
+      }
     }
 
-    return this._cache.then((meta) => {
-      if (isErrorStatus[meta["status"]]) {
-        throw createError(meta["status"], meta["result"]);
-      } else {
-        return meta["result"];
-      }
-    });
+    const meta = await this._cache;
+    if (isErrorStatus[meta["status"]]) {
+      throw createError(meta["status"], meta["result"]);
+    }
+    return meta["result"];
   }
 
-  private getTaskMeta(): Promise<object> {
+  private async getTaskMeta(): Promise<object | null> {
     if (!this._cache) {
-      this._cache = new Promise<object>((resolve) => {
-        this.backend.getTaskMeta(this.taskId)
-          .then(resolve);
-      });
-    } else {
-      const p = new Promise<object>((resolve) => {
-        this._cache.then(meta => {
-            if (meta && isFinalStatus[meta["status"]]) {
-              resolve(meta);
-            } else {
-              this.backend.getTaskMeta(this.taskId)
-                .then(resolve);
-            }
-          })
-      });
-      this._cache = p;
+      this._cache = this.backend.getTaskMeta(this.taskId);
+      return this._cache;
     }
 
+    const cached = await this._cache;
+    if (cached && isFinalStatus[cached["status"]]) {
+      return cached;
+    }
+
+    this._cache = this.backend.getTaskMeta(this.taskId);
     return this._cache;
   }
 
-  public result(): Promise<any> {
-    return this.getTaskMeta()
-      .then((meta) => {
-        if (meta) {
-          return meta["result"];
-        } else {
-          return null;
-        }
-      });
+  public async result(): Promise<any> {
+    const meta = await this.getTaskMeta();
+    return meta ? meta["result"] : null;
   }
 
-  public status(): Promise<string> {
-    return this.getTaskMeta()
-      .then((meta) => {
-        if (meta) {
-          return meta["status"];
-        } else {
-          return null;
-        }
-      });
+  public async status(): Promise<string> {
+    const meta = await this.getTaskMeta();
+    return meta ? meta["status"] : null;
   }
 }

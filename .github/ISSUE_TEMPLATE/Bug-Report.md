@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Is there something wrong with celery.node?
+about: Is there something wrong with celery-plus?
 labels: "bug"
 ---
 ## Description

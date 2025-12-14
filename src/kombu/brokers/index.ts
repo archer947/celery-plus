@@ -30,7 +30,7 @@ const supportedProtocols = ["redis", "rediss", "amqp", "amqps"];
  * @returns {String} protocol string.
  * @throws {Error} when url has unsupported protocols
  */
-function getProtocol(uri): string {
+function getProtocol(uri: string): string {
   const protocol = url.parse(uri).protocol.slice(0, -1);
   if (supportedProtocols.indexOf(protocol) === -1) {
     throw new Error(`Unsupported type: ${protocol}`);
@@ -60,5 +60,5 @@ export function newCeleryBroker(
   }
 
   // do not reach here.
-  throw new Error("unsupprted celery broker");
+  throw new Error("Unsupported celery broker");
 }

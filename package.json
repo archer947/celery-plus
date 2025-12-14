@@ -1,7 +1,8 @@
 {
-  "name": "celery-node",
-  "version": "0.5.9",
-  "description": "celery written in nodejs",
+  "name": "celery-plus",
+  "version": "0.1.1",
+  "description": "A TypeScript implementation of a Celery client for Node.js",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -9,12 +10,13 @@
     "format": "prettier --write \"{,!(node_modules)/**/}*.{js,ts}\"",
     "format-check": "prettier --check \"{,!(node_modules)/**/}*.{js,ts}\"",
     "dist": "tsc",
-    "test": "mocha -r ts-node/register ./test/**/*",
-    "prepublishOnly": "npm run dist & npm test"
+    "test": "node --loader ts-node/esm --experimental-specifier-resolution=node ./node_modules/mocha/bin/mocha.js --reporter spec --timeout 10000 \"test/**/test_*.ts\"",
+    "test:with-deps": "./scripts/test-with-compose.sh",
+    "prepublishOnly": "npm run dist && npm test"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actumn/celery.node.git"
+    "url": "git+https://github.com/archer947/celery-plus.git"
   },
   "keywords": [
     "node-celery",
@@ -27,36 +29,35 @@
     "rabbitmq",
     "redis"
   ],
-  "author": "actumn814@gmail.com",
+  "author": "archer947 <emunshi.studio@gmail.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/actumn/celery.node/issues"
+    "url": "https://github.com/archer947/celery-plus/issues"
   },
-  "homepage": "https://github.com/actumn/celery.node#readme",
+  "homepage": "https://github.com/archer947/celery-plus#readme",
   "devDependencies": {
-    "@types/amqplib": "^0.5.17",
-    "@types/chai": "^4.2.9",
-    "@types/ioredis": "^4.28.5",
-    "@types/mocha": "^7.0.1",
-    "@types/sinon": "^9.0.9",
-    "@types/uuid": "^3.4.7",
-    "@typescript-eslint/eslint-plugin": "^2.23.0",
-    "@typescript-eslint/parser": "^2.23.0",
-    "chai": "^4.2.0",
-    "eslint": "^7.16.0",
-    "eslint-config-prettier": "^7.1.0",
-    "eslint-plugin-import": "^2.22.1",
-    "eslint-plugin-mocha": "^8.0.0",
-    "express": "^4.17.1",
-    "mocha": "^8.2.1",
-    "prettier": "^1.19.1",
-    "sinon": "^7.2.2",
-    "ts-node": "^8.10.2",
-    "typescript": "^3.7.2"
+    "@types/amqplib": "^0.10.8",
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.0.2",
+    "@types/sinon": "^21.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.49.0",
+    "@typescript-eslint/parser": "^8.49.0",
+    "chai": "^6.2.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-mocha": "^11.2.0",
+    "express": "^5.2.1",
+    "mocha": "^11.7.5",
+    "prettier": "^3.7.4",
+    "sinon": "^21.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "amqplib": "^0.8.0",
-    "ioredis": "^4.28.5",
-    "uuid": "^3.3.2"
+    "amqplib": "^0.10.9",
+    "ioredis": "^5.8.2",
+    "uuid": "^13.0.0"
   }
 }

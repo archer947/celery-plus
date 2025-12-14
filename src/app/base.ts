@@ -17,10 +17,11 @@ export default class Base {
    *
    * @constructor Base
    */
-  constructor(broker: string, backend: string, queue = "celery") {
+  constructor(broker: string, backend?: string, queue = "celery") {
     this.conf = defaultConf();
     this.conf.CELERY_BROKER = broker;
-    this.conf.CELERY_BACKEND = backend;
+    // Celery can run without a result backend. When omitted, disable results.
+    this.conf.CELERY_BACKEND = backend || "disabled://";
     this.conf.CELERY_QUEUE = queue;
   }
 

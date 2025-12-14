@@ -15,9 +15,11 @@ class AMQPMessage extends Message {
 }
 
 export default class AMQPBroker implements CeleryBroker {
-  connect: Promise<amqplib.Connection>;
-  channel: Promise<amqplib.Channel>;
+  connect: Promise<amqplib.ChannelModel>;
+  channel: Promise<amqplib.ConfirmChannel>;
   queue: string;
+  _channelInstance?: amqplib.ConfirmChannel;
+  _connectionInstance?: amqplib.ChannelModel;
 
   /**
    * AMQP broker class
@@ -26,47 +28,78 @@ export default class AMQPBroker implements CeleryBroker {
    * @param {object} opts the options object for amqp connect of amqplib
    * @param {string} queue optional. the queue to connect to.
    */
-  constructor(url: string, opts: object, queue = "celery") {
+  constructor(url: string, opts: { [key: string]: any } = {}, queue = "celery") {
     this.queue = queue;
-    this.connect = amqplib.connect(url, opts);
-    this.channel = this.connect.then(conn => conn.createChannel());
+
+    // Avoid passing celery-plus custom keys to amqplib connect.
+    const connectOpts: { [key: string]: any } = { ...opts };
+    delete connectOpts.CELERY_RESULT_EXPIRES;
+
+    this.connect = (async () => {
+      const conn = await amqplib.connect(url, connectOpts as any);
+      this._connectionInstance = conn;
+      (conn as any).on?.("error", (err: unknown) =>
+        console.error("[AMQPBroker] connection error:", err)
+      );
+      (conn as any).on?.("close", () =>
+        console.warn("[AMQPBroker] connection closed")
+      );
+      return conn;
+    })();
+
+    this.channel = (async () => {
+      const conn = await this.connect;
+      const ch = await conn.createConfirmChannel();
+      this._channelInstance = ch;
+      ch.on("error", err => console.error("[AMQPBroker] channel error:", err));
+      ch.on("close", () => console.warn("[AMQPBroker] channel closed"));
+      return ch;
+    })();
   }
 
   /**
    * @method AMQPBroker#isReady
    * @returns {Promise} promises that continues if amqp connected.
    */
-  public isReady(): Promise<amqplib.Channel> {
-    return new Promise((resolve, reject) => {
-      this.channel.then(ch => {
-        Promise.all([
-          ch.assertExchange("default", "direct", {
-            durable: true,
-            autoDelete: true,
-            internal: false,
-            // nowait: false,
-            arguments: null
-          }),
-          ch.assertQueue(this.queue, {
-            durable: true,
-            autoDelete: false,
-            exclusive: false,
-            // nowait: false,
-            arguments: null
-          })
-        ])
-        .then(() => resolve())
-        .catch(reject);
-      });
-    });
+  public async isReady(): Promise<amqplib.ConfirmChannel> {
+    const ch = await this.channel;
+    await Promise.all([
+      ch.assertExchange("default", "direct", {
+        durable: true,
+        autoDelete: false,
+        internal: false
+      }),
+      ch.assertQueue(this.queue, {
+        durable: true,
+        autoDelete: false,
+        exclusive: false
+      })
+    ]);
+    return ch;
   }
 
   /**
    * @method AMQPBroker#disconnect
    * @returns {Promise} promises that continues if amqp disconnected.
    */
-  public disconnect(): Promise<void> {
-    return this.connect.then(conn => conn.close());
+  public async disconnect(): Promise<void> {
+    try {
+      try {
+        const ch = await this.channel;
+        await ch.close();
+      } catch {
+        // ignore
+      }
+
+      try {
+        const conn = await this.connect;
+        await conn.close();
+      } catch {
+        // ignore
+      }
+    } catch (err) {
+      console.error("[AMQPBroker] Disconnect error:", err);
+    }
   }
 
   /**
@@ -85,27 +118,22 @@ export default class AMQPBroker implements CeleryBroker {
     const contentType = "application/json";
     const contentEncoding = "utf-8";
 
-    return this.channel
-      .then(ch =>
-        ch
-          .assertQueue(routingKey, {
-            durable: true,
-            autoDelete: false,
-            exclusive: false,
-            // nowait: false,
-            arguments: null
-          })
-          .then(() => Promise.resolve(ch))
-      )
-      .then(ch =>
-        ch.publish(exchange, routingKey, Buffer.from(messageBody), {
-          contentType,
-          contentEncoding,
-          headers,
-          deliveryMode: 2,
-          ...properties
-        })
-      );
+    return (async () => {
+      const ch = await this.channel;
+      await ch.assertQueue(routingKey, {
+        durable: true,
+        autoDelete: false,
+        exclusive: false
+      });
+
+      return ch.publish(exchange, routingKey, Buffer.from(messageBody), {
+        contentType,
+        contentEncoding,
+        headers,
+        deliveryMode: 2,
+        ...properties
+      });
+    })();
   }
 
   /**
@@ -118,22 +146,17 @@ export default class AMQPBroker implements CeleryBroker {
     queue: string,
     callback: (message: Message) => void
   ): Promise<amqplib.Replies.Consume> {
-    return this.channel
-      .then(ch =>
-        ch
-          .assertQueue(queue, {
-            durable: true,
-            autoDelete: false,
-            exclusive: false,
-            // nowait: false,
-            arguments: null
-          })
-          .then(() => Promise.resolve(ch))
-      )
-      .then(ch =>
-        ch.consume(queue, rawMsg => {
-          ch.ack(rawMsg);
+    return (async () => {
+      const ch = await this.channel;
+      await ch.assertQueue(queue, {
+        durable: true,
+        autoDelete: false,
+        exclusive: false
+      });
 
+      return ch.consume(queue, (rawMsg) => {
+        if (!rawMsg) return;
+        try {
           // now supports only application/json of content-type
           if (rawMsg.properties.contentType !== "application/json") {
             throw new Error(
@@ -149,7 +172,13 @@ export default class AMQPBroker implements CeleryBroker {
           }
 
           callback(new AMQPMessage(rawMsg));
-        })
-      );
+          ch.ack(rawMsg);
+        } catch (err) {
+          console.error("[AMQPBroker] consume error:", err);
+          // don't requeue poison messages by default
+          ch.nack(rawMsg, false, false);
+        }
+      });
+    })();
   }
 }
