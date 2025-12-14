@@ -1,6 +1,6 @@
 {
   "name": "celery-plus",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A TypeScript implementation of a Celery client for Node.js",
   "type": "module",
   "main": "dist/index.js",
